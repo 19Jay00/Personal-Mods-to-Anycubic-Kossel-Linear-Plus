@@ -56,9 +56,23 @@ void controllerfan_update() {
           || Z3_ENABLE_READ() == Z_ENABLE_ON
         #endif
         #if E_STEPPERS
-          #define _OR_ENABLED_E(N) || E##N##_ENABLE_READ() == E_ENABLE_ON
-          REPEAT(E_STEPPERS, _OR_ENABLED_E)
-        #endif
+          || E0_ENABLE_READ() == E_ENABLE_ON
+          #if E_STEPPERS > 1
+            || E1_ENABLE_READ() == E_ENABLE_ON
+            #if E_STEPPERS > 2
+              || E2_ENABLE_READ() == E_ENABLE_ON
+              #if E_STEPPERS > 3
+                || E3_ENABLE_READ() == E_ENABLE_ON
+                #if E_STEPPERS > 4
+                  || E4_ENABLE_READ() == E_ENABLE_ON
+                  #if E_STEPPERS > 5
+                    || E5_ENABLE_READ() == E_ENABLE_ON
+                  #endif // E_STEPPERS > 5
+                #endif // E_STEPPERS > 4
+              #endif // E_STEPPERS > 3
+            #endif // E_STEPPERS > 2
+          #endif // E_STEPPERS > 1
+        #endif // E_STEPPERS
     ) {
       lastMotorOn = ms; //... set time to NOW so the fan will turn on
     }

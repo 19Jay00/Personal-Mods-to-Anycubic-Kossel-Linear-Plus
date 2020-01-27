@@ -20,9 +20,7 @@
 
 #include <stdint.h>
 
-#ifndef HAVE_SW_SERIAL
-   #define SW_SERIAL_PLACEHOLDER 1
-#endif
+#define SW_SERIAL_PLACEHOLDER 1
 
 class SoftwareSerial {
 public:

@@ -36,15 +36,14 @@
 
   #if __CORTEX_M == 7
 
-    // Cortex-M3 through M7 can use the cycle counter of the DWT unit
+    // Cortex-M7 can use the cycle counter of the DWT unit
     // http://www.anthonyvh.com/2017/05/18/cortex_m-cycle_counter/
 
     FORCE_INLINE static void enableCycleCounter() {
       CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
 
-      #if __CORTEX_M == 7
-        DWT->LAR = 0xC5ACCE55; // Unlock DWT on the M7
-      #endif
+      // Unlock DWT.
+      DWT->LAR = 0xC5ACCE55;
 
       DWT->CYCCNT = 0;
       DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
@@ -54,7 +53,7 @@
 
     FORCE_INLINE static void DELAY_CYCLES(const uint32_t x) {
       const uint32_t endCycles = getCycleCount() + x;
-      while (PENDING(getCycleCount(), endCycles)) {}
+      while (PENDING(getCycleCount(), endCycles)) { }
     }
 
   #else

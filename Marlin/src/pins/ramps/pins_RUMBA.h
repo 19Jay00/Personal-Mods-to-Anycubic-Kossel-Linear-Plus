@@ -143,9 +143,7 @@
 #ifndef FAN_PIN
   #define FAN_PIN           7
 #endif
-#ifndef FAN1_PIN
-  #define FAN1_PIN          8
-#endif
+#define FAN1_PIN            8
 
 //
 // Misc. Functions
@@ -162,7 +160,7 @@
   #define SPINDLE_LASER_PWM_PIN 4   // Hardware PWM. Pin 4 interrupts OC0* and OC1* always in use?
 #endif
 #ifndef SPINDLE_LASER_ENA_PIN
-  #define SPINDLE_LASER_ENA_PIN 14   // Pullup!
+  #define SPINDLE_LASER_ENA_PIN    14   // Pullup!
 #endif
 #ifndef SPINDLE_DIR_PIN
   #define SPINDLE_DIR_PIN  15

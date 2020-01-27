@@ -6,96 +6,88 @@
   "publisher": "marlinfirmware",
   "icon": "logo.svg",
   "engines": {
-    "vscode": "^1.32.0"
+    "vscode": "^1.23.0"
   },
   "enableProposedApi": true,
   "categories": [
     "Other"
   ],
   "activationEvents": [
-    "onCommand:mfbuild",
-    "onCommand:mfclean",
-    "onCommand:mfupload",
-    "onCommand:mftraceback"
+    "onCommand:piobuild",
+    "onCommand:pioclean",
+    "onCommand:pioupload",
+    "onCommand:piotraceback"
   ],
   "main": "./extension",
   "contributes": {
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "autoBuildVC",
-          "title": "Marlin Build",
+          "id": "auto-build",
+          "title": "Auto Build Marlin",
           "icon": "resources/AB.svg"
         }
       ]
     },
     "views": {
-      "autoBuildVC": [
+      "auto-build": [
         {
-          "id": "autoBuildView",
-          "name": "Build…"
-        },
-        {
-          "id": "marlinView",
-          "name": "Marlin Info"
+          "id": "autobuild",
+          "name": " "
         }
       ]
     },
     "commands": [
       {
-        "command": "mfbuild",
-        "title": "Build",
+        "command": "piobuild",
+        "title": "PIO Build",
         "icon": {
           "light": "resources/B48x48_light.svg",
           "dark": "resources/B48x48_dark.svg"
         }
       },
       {
-        "command": "mfupload",
-        "title": "Upload",
+        "command": "pioclean",
+        "title": "PIO Clean",
+        "icon": {
+          "light": "resources/C48x48_light.svg",
+          "dark": "resources/C48x48_dark.svg"
+        }
+      },
+      {
+        "command": "pioupload",
+        "title": "PIO Upload",
         "icon": {
           "light": "resources/U48x48_light.svg",
           "dark": "resources/U48x48_dark.svg"
         }
       },
       {
-        "command": "mftraceback",
-        "title": "Upload (traceback)",
+        "command": "piotraceback",
+        "title": "PIO Upload (traceback)",
         "icon": {
           "light": "resources/T48x48_light.svg",
           "dark": "resources/T48x48_dark.svg"
-        }
-      },
-      {
-        "command": "mfclean",
-        "title": "Clean",
-        "icon": {
-          "light": "resources/C48x48_light.svg",
-          "dark": "resources/C48x48_dark.svg"
         }
       }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "mfbuild",
-          "group": "navigation@1",
-          "when": "view == autoBuildView || view == marlinView"
+          "command": "piobuild",
+          "group": "navigation@1"
         },
         {
-          "command": "mfupload",
-          "group": "navigation@2",
-          "when": "view == autoBuildView || view == marlinView"
+          "command": "pioclean",
+          "group": "navigation@2"
         },
         {
-          "command": "mftraceback",
-          "group": "navigation@3",
-          "when": "view == autoBuildView || view == marlinView"
+          "command": "pioupload",
+          "group": "navigation@3"
         },
         {
-          "command": "mfclean",
-          "group": "navigation@4",
-          "when": "view == autoBuildView || view == marlinView"
+          "command": "piotraceback",
+          "group": "navigation@4"
         }
       ]
     }
@@ -108,10 +100,10 @@
     "test": "npm run compile && node ./node_modules/vscode/bin/test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.34.0",
-    "typescript": "^3.5.1",
-    "tslint": "^5.16.0",
-    "@types/node": "^10.14.17",
+    "vscode": "^1.1.17",
+    "typescript": "^2.6.1",
+    "tslint": "^5.8.0",
+    "@types/node": "^7.0.43",
     "@types/mocha": "^2.2.42"
   }
 }

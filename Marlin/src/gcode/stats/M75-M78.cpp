@@ -24,13 +24,11 @@
 #include "../../module/printcounter.h"
 #include "../../lcd/ultralcd.h"
 
-#include "../../Marlin.h" // for startOrResumeJob
-
 /**
  * M75: Start print timer
  */
 void GcodeSuite::M75() {
-  startOrResumeJob();
+  print_job_timer.start();
 }
 
 /**
@@ -44,7 +42,7 @@ void GcodeSuite::M76() {
  * M77: Stop print timer
  */
 void GcodeSuite::M77() {
-  print_job_timer.stop();
+ print_job_timer.stop();
 }
 
 #if ENABLED(PRINTCOUNTER)

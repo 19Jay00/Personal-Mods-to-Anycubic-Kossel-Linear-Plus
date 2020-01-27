@@ -132,8 +132,12 @@
 #define MOSI_PIN           P1B5
 #define SS_PIN             PA15
 
-#if HAS_GRAPHICAL_LCD
-  #define BOARD_ST7920_DELAY_1 DELAY_NS(125)
-  #define BOARD_ST7920_DELAY_2 DELAY_NS(125)
-  #define BOARD_ST7920_DELAY_3 DELAY_NS(125)
+#ifndef ST7920_DELAY_1
+  #define ST7920_DELAY_1 DELAY_NS(125)
+#endif
+#ifndef ST7920_DELAY_2
+  #define ST7920_DELAY_2 DELAY_NS(125)
+#endif
+#ifndef ST7920_DELAY_3
+  #define ST7920_DELAY_3 DELAY_NS(125)
 #endif

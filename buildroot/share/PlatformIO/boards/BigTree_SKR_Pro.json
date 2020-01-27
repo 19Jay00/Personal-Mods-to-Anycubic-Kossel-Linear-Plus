@@ -16,7 +16,7 @@
     ],
     "ldscript": "stm32f407xg.ld",
     "mcu": "stm32f407zgt6",
-    "variant": "BIGTREE_SKR_PRO_1v1"
+    "variant": "BIGTREE_GENERIC_STM32F407_5X"
   },
   "debug": {
     "jlink_device": "STM32F407ZG",
@@ -24,7 +24,9 @@
     "svd_path": "STM32F40x.svd"
   },
   "frameworks": [
-    "arduino"
+    "arduino",
+    "cmsis",
+    "stm32cube"
   ],
   "name": "STM32F407ZG (192k RAM. 1024k Flash)",
   "upload": {

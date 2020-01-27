@@ -38,13 +38,13 @@
       //Error_Handler();
     }
     else {
-      #if PIN_EXISTS(LED) && DISABLED(PINS_DEBUGGING)
+      #if PIN_EXISTS(LED) && !ENABLED(PINS_DEBUGGING)
         TOGGLE(LED_PIN);  // heartbeat indicator
       #endif
     }
   }
 
-  void HAL_watchdog_refresh() {
+  void watchdog_reset() {
     /* Refresh IWDG: reload counter */
     if (HAL_IWDG_Refresh(&hiwdg) != HAL_OK) {
       /* Refresh Error */

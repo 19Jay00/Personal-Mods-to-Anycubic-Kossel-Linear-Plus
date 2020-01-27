@@ -27,14 +27,6 @@
   #include "../runout.h"
 #endif
 
-#if SERIAL_USB
-  #define MMU_RX_SIZE 256
-  #define MMU_TX_SIZE 256
-#else
-  #define MMU_RX_SIZE  16
-  #define MMU_TX_SIZE  16
-#endif
-
 struct E_Step;
 
 class MMU2 {
@@ -87,7 +79,7 @@ private:
   static volatile bool finda_runout_valid;
   static int16_t version, buildnr;
   static millis_t last_request, next_P0_request;
-  static char rx_buffer[MMU_RX_SIZE], tx_buffer[MMU_TX_SIZE];
+  static char rx_buffer[16], tx_buffer[16];
 
   static inline void set_runout_valid(const bool valid) {
     finda_runout_valid = valid;

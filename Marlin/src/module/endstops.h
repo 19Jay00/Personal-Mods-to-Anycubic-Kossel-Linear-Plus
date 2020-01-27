@@ -124,9 +124,9 @@ class Endstops {
     static void event_handler();
 
     /**
-     * Report endstop states in response to M119
+     * Report endstop positions in response to M119
      */
-    static void report_states();
+    static void M119();
 
     // Enable / disable endstop checking globally
     static void enable_globally(const bool onoff=true);
