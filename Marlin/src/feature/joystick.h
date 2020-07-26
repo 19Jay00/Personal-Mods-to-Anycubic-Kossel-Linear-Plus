@@ -1,6 +1,6 @@
 /**
  * Marlin 3D Printer Firmware
- * Copyright (c) 2019 MarlinFirmware [https://github.com/MarlinFirmware/Marlin]
+ * Copyright (c) 2020 MarlinFirmware [https://github.com/MarlinFirmware/Marlin]
  *
  * Based on Sprinter and grbl.
  * Copyright (c) 2011 Camiel Gubbels / Erik van der Zalm
@@ -25,6 +25,8 @@
  * joystick.h - joystick input / jogging
  */
 
+#include "../inc/MarlinConfigPre.h"
+#include "../core/types.h"
 #include "../core/macros.h"
 #include "../module/temperature.h"
 
@@ -33,20 +35,12 @@
 class Joystick {
   friend class Temperature;
   private:
-    #if HAS_JOY_ADC_X
-      static temp_info_t x;
-    #endif
-    #if HAS_JOY_ADC_Y
-      static temp_info_t y;
-    #endif
-    #if HAS_JOY_ADC_Z
-      static temp_info_t z;
-    #endif
+    TERN_(HAS_JOY_ADC_X, static temp_info_t x);
+    TERN_(HAS_JOY_ADC_Y, static temp_info_t y);
+    TERN_(HAS_JOY_ADC_Z, static temp_info_t z);
   public:
-    #if ENABLED(JOYSTICK_DEBUG)
-      static void report();
-    #endif
-    static void calculate(float (&norm_jog)[XYZ]);
+    TERN_(JOYSTICK_DEBUG, static void report());
+    static void calculate(xyz_float_t &norm_jog);
     static void inject_jog_moves();
 };
 

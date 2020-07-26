@@ -1,6 +1,6 @@
 /**
  * Marlin 3D Printer Firmware
- * Copyright (c) 2019 MarlinFirmware [https://github.com/MarlinFirmware/Marlin]
+ * Copyright (c) 2020 MarlinFirmware [https://github.com/MarlinFirmware/Marlin]
  *
  * Based on Sprinter and grbl.
  * Copyright (c) 2011 Camiel Gubbels / Erik van der Zalm
@@ -47,22 +47,16 @@
 
 #define DEBUG_MALYAN_LCD
 
-#include "extensible_ui/ui_api.h"
+#include "extui/ui_api.h"
 
 #include "ultralcd.h"
+#include "../sd/cardreader.h"
 #include "../module/temperature.h"
 #include "../module/stepper.h"
 #include "../module/motion.h"
 #include "../libs/duration_t.h"
 #include "../module/printcounter.h"
 #include "../gcode/queue.h"
-
-#if ENABLED(SDSUPPORT)
-  #include "../sd/cardreader.h"
-  #include "../sd/SdFatConfig.h"
-#else
-  #define LONG_FILENAME_LENGTH 0
-#endif
 
 #define DEBUG_OUT ENABLED(DEBUG_MALYAN_LCD)
 #include "../core/debug_out.h"
@@ -77,7 +71,7 @@
 #define MAX_CURLY_COMMAND (32 + LONG_FILENAME_LENGTH) * 2
 
 // Track incoming command bytes from the LCD
-int inbound_count;
+uint16_t inbound_count;
 
 // For sending print completion messages
 bool last_printing_status = false;
@@ -87,7 +81,7 @@ void write_to_lcd_P(PGM_P const message) {
   char encoded_message[MAX_CURLY_COMMAND];
   uint8_t message_length = _MIN(strlen_P(message), sizeof(encoded_message));
 
-  for (uint8_t i = 0; i < message_length; i++)
+  LOOP_L_N(i, message_length)
     encoded_message[i] = pgm_read_byte(&message[i]) | 0x80;
 
   LCD_SERIAL.Print::write(encoded_message, message_length);
@@ -97,11 +91,23 @@ void write_to_lcd(const char * const message) {
   char encoded_message[MAX_CURLY_COMMAND];
   const uint8_t message_length = _MIN(strlen(message), sizeof(encoded_message));
 
-  for (uint8_t i = 0; i < message_length; i++)
+  LOOP_L_N(i, message_length)
     encoded_message[i] = message[i] | 0x80;
 
   LCD_SERIAL.Print::write(encoded_message, message_length);
 }
+
+// {E:<msg>} is for error states.
+void set_lcd_error_P(PGM_P const error, PGM_P const component=nullptr) {
+  write_to_lcd_P(PSTR("{E:"));
+  write_to_lcd_P(error);
+  if (component) {
+    write_to_lcd_P(PSTR(" "));
+    write_to_lcd_P(component);
+  }
+  write_to_lcd_P(PSTR("}"));
+}
+
 
 /**
  * Process an LCD 'C' command.
@@ -117,17 +123,27 @@ void write_to_lcd(const char * const message) {
  * the command portion begins after the :
  */
 void process_lcd_c_command(const char* command) {
+  const int target_val = command[1] ? atoi(command + 1) : -1;
+  if (target_val < 0) {
+    DEBUG_ECHOLNPAIR("UNKNOWN C COMMAND ", command);
+    return;
+  }
   switch (command[0]) {
     case 'C': // Cope with both V1 early rev and later LCDs.
     case 'S':
-      feedrate_percentage = atoi(command + 1) * 10;
+      feedrate_percentage = target_val * 10;
       LIMIT(feedrate_percentage, 10, 999);
       break;
 
-    case 'T': ExtUI::setTargetTemp_celsius(atoi(command + 1), ExtUI::extruder_t::E0); break;
+    case 'T':
+      // Sometimes the LCD will send commands to turn off both extruder and bed, though
+      // this should not happen since the printing screen is up. Better safe than sorry.
+      if (!print_job_timer.isRunning() || target_val > 0)
+        ExtUI::setTargetTemp_celsius(target_val, ExtUI::extruder_t::E0);
+      break;
 
     #if HAS_HEATED_BED
-      case 'P': ExtUI::setTargetTemp_celsius(atoi(command + 1), ExtUI::heater_t::BED); break;
+      case 'P': ExtUI::setTargetTemp_celsius(target_val, ExtUI::heater_t::BED); break;
     #endif
 
     default: DEBUG_ECHOLNPAIR("UNKNOWN C COMMAND ", command);
@@ -143,6 +159,7 @@ void process_lcd_c_command(const char* command) {
  */
 void process_lcd_eb_command(const char* command) {
   char elapsed_buffer[10];
+  static uint8_t iteration = 0;
   duration_t elapsed;
   switch (command[0]) {
     case '0': {
@@ -150,6 +167,13 @@ void process_lcd_eb_command(const char* command) {
       sprintf_P(elapsed_buffer, PSTR("%02u%02u%02u"), uint16_t(elapsed.hour()), uint16_t(elapsed.minute()) % 60, uint16_t(elapsed.second()) % 60);
 
       char message_buffer[MAX_CURLY_COMMAND];
+      uint8_t done_pct = print_job_timer.isRunning() ? (iteration * 10) : 100;
+      iteration = (iteration + 1) % 10; // Provide progress animation
+      #if ENABLED(SDSUPPORT)
+        if (ExtUI::isPrintingFromMedia() || ExtUI::isPrintingFromMediaPaused())
+          done_pct = card.percentDone();
+      #endif
+
       sprintf_P(message_buffer,
         PSTR("{T0:%03i/%03i}{T1:000/000}{TP:%03i/%03i}{TQ:%03i}{TT:%s}"),
         int(thermalManager.degHotend(0)), thermalManager.degTargetHotend(0),
@@ -159,7 +183,7 @@ void process_lcd_eb_command(const char* command) {
           0, 0,
         #endif
         #if ENABLED(SDSUPPORT)
-          card.percentDone(),
+          done_pct,
         #else
           0,
         #endif
@@ -182,18 +206,19 @@ void process_lcd_eb_command(const char* command) {
  * {J:E}{J:X+200}{J:E}
  * X, Y, Z, A (extruder)
  */
-void process_lcd_j_command(const char* command) {
-  auto move_axis = [command](const auto axis) {
-    const float dist = atof(command + 1) / 10.0;
-    ExtUI::setAxisPosition_mm(ExtUI::getAxisPosition_mm(axis) + dist, axis);
-  }
+template<typename T>
+void j_move_axis(const char* command, const T axis) {
+  const float dist = atof(command + 1) / 10.0;
+  ExtUI::setAxisPosition_mm(ExtUI::getAxisPosition_mm(axis) + dist, axis);
+};
 
+void process_lcd_j_command(const char* command) {
   switch (command[0]) {
     case 'E': break;
-    case 'A': move_axis(ExtUI::extruder_t::E0); break;
-    case 'Y': move_axis(ExtUI::axis_t::Y); break;
-    case 'Z': move_axis(ExtUI::axis_t::Z); break;
-    case 'X': move_axis(ExtUI::axis_t::X); break;
+    case 'A': j_move_axis<ExtUI::extruder_t>(command, ExtUI::extruder_t::E0); break;
+    case 'Y': j_move_axis<ExtUI::axis_t>(command, ExtUI::axis_t::Y); break;
+    case 'Z': j_move_axis<ExtUI::axis_t>(command, ExtUI::axis_t::Z); break;
+    case 'X': j_move_axis<ExtUI::axis_t>(command, ExtUI::axis_t::X); break;
     default: DEBUG_ECHOLNPAIR("UNKNOWN J COMMAND ", command);
   }
 }
@@ -236,7 +261,7 @@ void process_lcd_p_command(const char* command) {
         ExtUI::stopPrint();
         write_to_lcd_P(PSTR("{SYS:STARTED}"));
         break;
-    case 'H': queue.enqueue_now_P(PSTR("G28")); break; // Home all axes
+    case 'H': queue.enqueue_now_P(G28_STR); break; // Home all axes
     default: {
       #if ENABLED(SDSUPPORT)
         // Print file 000 - a three digit number indicating which
@@ -246,13 +271,13 @@ void process_lcd_p_command(const char* command) {
         // Find the name of the file to print.
         // It's needed to echo the PRINTFILE option.
         // The {S:L} command should've ensured the SD card was mounted.
-        card.getfilename(atoi(command));
+        card.selectFileByIndex(atoi(command));
 
         // There may be a difference in how V1 and V2 LCDs handle subdirectory
         // prints. Investigate more. This matches the V1 motion controller actions
         // but the V2 LCD switches to "print" mode on {SYS:DIR} response.
         if (card.flag.filenameIsDir) {
-          card.chdir(card.filename);
+          card.cd(card.filename);
           write_to_lcd_P(PSTR("{SYS:DIR}"));
         }
         else {
@@ -309,7 +334,7 @@ void process_lcd_s_command(const char* command) {
         char message_buffer[MAX_CURLY_COMMAND];
         uint16_t file_count = card.get_num_Files();
         for (uint16_t i = 0; i < file_count; i++) {
-          card.getfilename(i);
+          card.selectFileByIndex(i);
           sprintf_P(message_buffer, card.flag.filenameIsDir ? PSTR("{DIR:%s}") : PSTR("{FILE:%s}"), card.longest_filename());
           write_to_lcd(message_buffer);
         }
@@ -330,7 +355,6 @@ void process_lcd_s_command(const char* command) {
 void process_lcd_command(const char* command) {
   const char *current = command;
 
-  current++; // skip the leading {. The trailing one is already gone.
   byte command_code = *current++;
   if (*current == ':') {
 
@@ -350,6 +374,40 @@ void process_lcd_command(const char* command) {
     DEBUG_ECHOLNPAIR("UNKNOWN COMMAND FORMAT ", command);
 }
 
+//
+// Parse LCD commands mixed with G-Code
+//
+void parse_lcd_byte(const byte b) {
+  static char inbound_buffer[MAX_CURLY_COMMAND];
+
+  static uint8_t parsing = 0;                   // Parsing state
+  static bool prevcr = false;                   // Was the last c a CR?
+
+  const char c = b & 0x7F;
+
+  if (parsing) {
+    const bool is_lcd = parsing == 1;           // 1 for LCD
+    if ( ( is_lcd && c == '}')                  // Closing brace on LCD command
+      || (!is_lcd && c == '\n')                 // LF on a G-code command
+    ) {
+      inbound_buffer[inbound_count] = '\0';     // Reset before processing
+      inbound_count = 0;                        // Reset buffer index
+      if (parsing == 1)
+        process_lcd_command(inbound_buffer);    // Handle the LCD command
+      else
+        queue.enqueue_one_now(inbound_buffer);  // Handle the G-code command
+      parsing = 0;                              // Unflag and...
+    }
+    else if (inbound_count < MAX_CURLY_COMMAND - 2)
+      inbound_buffer[inbound_count++] = is_lcd ? c : b; // Buffer while space remains
+  }
+  else {
+         if (c == '{')            parsing = 1;  // Brace opens an LCD command
+    else if (prevcr && c == '\n') parsing = 2;  // CRLF indicates G-code
+    prevcr = (c == '\r');                       // Remember if it was a CR
+  }
+}
+
 /**
  * UC means connected.
  * UD means disconnected
@@ -360,8 +418,8 @@ void update_usb_status(const bool forceUpdate) {
   // This is mildly different than stock, which
   // appears to use the usb discovery status.
   // This is more logical.
-  if (last_usb_connected_status != Serial || forceUpdate) {
-    last_usb_connected_status = Serial;
+  if (last_usb_connected_status != MYSERIAL0 || forceUpdate) {
+    last_usb_connected_status = MYSERIAL0;
     write_to_lcd_P(last_usb_connected_status ? PSTR("{R:UC}\r\n") : PSTR("{R:UD}\r\n"));
   }
 }
@@ -391,25 +449,14 @@ namespace ExtUI {
     /**
      * - from printer on startup:
      * {SYS:STARTED}{VER:29}{SYS:STARTED}{R:UD}
-     * The optimize attribute fixes a register Compile
-     * error for amtel.
      */
-    static char inbound_buffer[MAX_CURLY_COMMAND];
 
     // First report USB status.
     update_usb_status(false);
 
     // now drain commands...
-    while (LCD_SERIAL.available()) {
-      const byte b = (byte)LCD_SERIAL.read() & 0x7F;
-      inbound_buffer[inbound_count++] = b;
-      if (b == '}' || inbound_count == sizeof(inbound_buffer) - 1) {
-        inbound_buffer[inbound_count - 1] = '\0';
-        process_lcd_command(inbound_buffer);
-        inbound_count = 0;
-        inbound_buffer[0] = 0;
-      }
-    }
+    while (LCD_SERIAL.available())
+      parse_lcd_byte((byte)LCD_SERIAL.read());
 
     #if ENABLED(SDSUPPORT)
       // The way last printing status works is simple:
@@ -431,29 +478,59 @@ namespace ExtUI {
     #endif
   }
 
-  // {E:<msg>} is for error states.
-  void onPrinterKilled(PGM_P msg) {
-    write_to_lcd_P(PSTR("{E:"));
-    write_to_lcd_P(msg);
-    write_to_lcd_P("}");
+  void onPrinterKilled(PGM_P const error, PGM_P const component) {
+    set_lcd_error_P(error, component);
   }
 
+  #if HAS_PID_HEATING
+
+    void onPidTuning(const result_t rst) {
+      // Called for temperature PID tuning result
+      //SERIAL_ECHOLNPAIR("OnPidTuning:", rst);
+      switch (rst) {
+        case PID_BAD_EXTRUDER_NUM:
+          set_lcd_error_P(GET_TEXT(MSG_PID_BAD_EXTRUDER_NUM));
+          break;
+        case PID_TEMP_TOO_HIGH:
+          set_lcd_error_P(GET_TEXT(MSG_PID_TEMP_TOO_HIGH));
+          break;
+        case PID_TUNING_TIMEOUT:
+          set_lcd_error_P(GET_TEXT(MSG_PID_TIMEOUT));
+          break;
+        case PID_DONE:
+          set_lcd_error_P(GET_TEXT(MSG_PID_AUTOTUNE_DONE));
+          break;
+      }
+    }
+
+  #endif
+
+  void onPrintTimerStarted() { write_to_lcd_P(PSTR("{SYS:BUILD}")); }
+  void onPrintTimerPaused() {}
+  void onPrintTimerStopped() { write_to_lcd_P(PSTR("{TQ:100}")); }
+
   // Not needed for Malyan LCD
-  void onStatusChanged(const char * const msg) { UNUSED(msg); }
+  void onStatusChanged(const char * const) {}
   void onMediaInserted() {};
   void onMediaError() {};
   void onMediaRemoved() {};
-  void onPlayTone(const uint16_t frequency, const uint16_t duration) { UNUSED(frequency); UNUSED(duration); }
-  void onPrintTimerStarted() {}
-  void onPrintTimerPaused() {}
-  void onPrintTimerStopped() {}
+  void onPlayTone(const uint16_t, const uint16_t) {}
   void onFilamentRunout(const extruder_t extruder) {}
-  void onUserConfirmRequired(const char * const msg) { UNUSED(msg); }
+  void onUserConfirmRequired(const char * const) {}
   void onFactoryReset() {}
-  void onStoreSettings(char *buff) { UNUSED(buff); }
-  void onLoadSettings(const char *buff) { UNUSED(buff); }
-  void onConfigurationStoreWritten(bool success) { UNUSED(success); }
-  void onConfigurationStoreRead(bool success) { UNUSED(success); }
+  void onStoreSettings(char*) {}
+  void onLoadSettings(const char*) {}
+  void onConfigurationStoreWritten(bool) {}
+  void onConfigurationStoreRead(bool) {}
+
+  #if HAS_MESH
+    void onMeshUpdate(const int8_t xpos, const int8_t ypos, const float zval) {}
+    void onMeshUpdate(const int8_t xpos, const int8_t ypos, const ExtUI::probe_state_t state) {}
+  #endif
+
+  #if ENABLED(POWER_LOSS_RECOVERY)
+    void onPowerLossResume() {}
+  #endif
 }
 
 #endif // MALYAN_LCD

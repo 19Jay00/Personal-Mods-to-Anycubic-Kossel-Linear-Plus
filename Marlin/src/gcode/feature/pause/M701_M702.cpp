@@ -1,6 +1,6 @@
 /**
  * Marlin 3D Printer Firmware
- * Copyright (c) 2019 MarlinFirmware [https://github.com/MarlinFirmware/Marlin]
+ * Copyright (c) 2020 MarlinFirmware [https://github.com/MarlinFirmware/Marlin]
  *
  * Based on Sprinter and grbl.
  * Copyright (c) 2011 Camiel Gubbels / Erik van der Zalm
@@ -25,10 +25,10 @@
 #if ENABLED(FILAMENT_LOAD_UNLOAD_GCODES)
 
 #include "../../gcode.h"
-#include "../../../Marlin.h"
+#include "../../../MarlinCore.h"
 #include "../../../module/motion.h"
 #include "../../../module/temperature.h"
-#include "../../../libs/point_t.h"
+#include "../../../feature/pause.h"
 
 #if EXTRUDERS > 1
   #include "../../../module/tool_change.h"
@@ -39,7 +39,7 @@
 #endif
 
 #if ENABLED(PRUSA_MMU2)
-  #include "../../../feature/prusa_MMU2/mmu2.h"
+  #include "../../../feature/mmu2/mmu2.h"
 #endif
 
 #if ENABLED(MIXING_EXTRUDER)
@@ -57,11 +57,11 @@
  *  Default values are used for omitted arguments.
  */
 void GcodeSuite::M701() {
-  point_t park_point = NOZZLE_PARK_POINT;
+  xyz_pos_t park_point = NOZZLE_PARK_POINT;
 
   #if ENABLED(NO_MOTION_BEFORE_HOMING)
-    // Only raise Z if the machine is homed
-    if (axis_unhomed_error()) park_point.z = 0;
+    // Don't raise Z if the machine isn't homed
+    if (axes_need_homing()) park_point.z = 0;
   #endif
 
   #if ENABLED(MIXING_EXTRUDER)
@@ -84,9 +84,7 @@ void GcodeSuite::M701() {
   if (parser.seenval('Z')) park_point.z = parser.linearval('Z');
 
   // Show initial "wait for load" message
-  #if HAS_LCD_MENU
-    lcd_pause_show_message(PAUSE_MESSAGE_LOAD, PAUSE_MODE_LOAD_FILAMENT, target_extruder);
-  #endif
+  TERN_(HAS_LCD_MENU, lcd_pause_show_message(PAUSE_MESSAGE_LOAD, PAUSE_MODE_LOAD_FILAMENT, target_extruder));
 
   #if EXTRUDERS > 1 && DISABLED(PRUSA_MMU2)
     // Change toolhead if specified
@@ -97,26 +95,31 @@ void GcodeSuite::M701() {
 
   // Lift Z axis
   if (park_point.z > 0)
-    do_blocking_move_to_z(_MIN(current_position[Z_AXIS] + park_point.z, Z_MAX_POS), NOZZLE_PARK_Z_FEEDRATE);
+    do_blocking_move_to_z(_MIN(current_position.z + park_point.z, Z_MAX_POS), feedRate_t(NOZZLE_PARK_Z_FEEDRATE));
 
   // Load filament
   #if ENABLED(PRUSA_MMU2)
     mmu2.load_filament_to_nozzle(target_extruder);
   #else
-    constexpr float slow_load_length = FILAMENT_CHANGE_SLOW_LOAD_LENGTH;
-    const float fast_load_length = ABS(parser.seen('L') ? parser.value_axis_units(E_AXIS)
-                                                        : fc_settings[active_extruder].load_length);
-    load_filament(slow_load_length, fast_load_length, ADVANCED_PAUSE_PURGE_LENGTH, FILAMENT_CHANGE_ALERT_BEEPS,
-                  true, thermalManager.still_heating(target_extruder), PAUSE_MODE_LOAD_FILAMENT
-                  #if ENABLED(DUAL_X_CARRIAGE)
-                    , target_extruder
-                  #endif
-                );
+    constexpr float     purge_length = ADVANCED_PAUSE_PURGE_LENGTH,
+                    slow_load_length = FILAMENT_CHANGE_SLOW_LOAD_LENGTH;
+        const float fast_load_length = ABS(parser.seen('L') ? parser.value_axis_units(E_AXIS)
+                                                            : fc_settings[active_extruder].load_length);
+    load_filament(
+      slow_load_length, fast_load_length, purge_length,
+      FILAMENT_CHANGE_ALERT_BEEPS,
+      true,                                           // show_lcd
+      thermalManager.still_heating(target_extruder),  // pause_for_user
+      PAUSE_MODE_LOAD_FILAMENT                        // pause_mode
+      #if ENABLED(DUAL_X_CARRIAGE)
+        , target_extruder                             // Dual X target
+      #endif
+    );
   #endif
 
   // Restore Z axis
   if (park_point.z > 0)
-    do_blocking_move_to_z(_MAX(current_position[Z_AXIS] - park_point.z, 0), NOZZLE_PARK_Z_FEEDRATE);
+    do_blocking_move_to_z(_MAX(current_position.z - park_point.z, 0), feedRate_t(NOZZLE_PARK_Z_FEEDRATE));
 
   #if EXTRUDERS > 1 && DISABLED(PRUSA_MMU2)
     // Restore toolhead if it was changed
@@ -124,14 +127,10 @@ void GcodeSuite::M701() {
       tool_change(active_extruder_before_filament_change, false);
   #endif
 
-  #if ENABLED(MIXING_EXTRUDER)
-    mixer.T(old_mixing_tool); // Restore original mixing tool
-  #endif
+  TERN_(MIXING_EXTRUDER, mixer.T(old_mixing_tool)); // Restore original mixing tool
 
   // Show status screen
-  #if HAS_LCD_MENU
-    lcd_pause_show_message(PAUSE_MESSAGE_STATUS);
-  #endif
+  TERN_(HAS_LCD_MENU, lcd_pause_show_message(PAUSE_MESSAGE_STATUS));
 }
 
 /**
@@ -146,11 +145,11 @@ void GcodeSuite::M701() {
  *  Default values are used for omitted arguments.
  */
 void GcodeSuite::M702() {
-  point_t park_point = NOZZLE_PARK_POINT;
+  xyz_pos_t park_point = NOZZLE_PARK_POINT;
 
   #if ENABLED(NO_MOTION_BEFORE_HOMING)
-    // Only raise Z if the machine is homed
-    if (axis_unhomed_error()) park_point.z = 0;
+    // Don't raise Z if the machine isn't homed
+    if (axes_need_homing()) park_point.z = 0;
   #endif
 
   #if ENABLED(MIXING_EXTRUDER)
@@ -158,16 +157,18 @@ void GcodeSuite::M702() {
 
     #if ENABLED(FILAMENT_UNLOAD_ALL_EXTRUDERS)
       float mix_multiplier = 1.0;
-      if (!parser.seenval('T')) {
+      const bool seenT = parser.seenval('T');
+      if (!seenT) {
         mixer.T(MIXER_AUTORETRACT_TOOL);
         mix_multiplier = MIXING_STEPPERS;
       }
-      else
+    #else
+      constexpr bool seenT = true;
     #endif
-    {
+
+    if (seenT) {
       const int8_t target_e_stepper = get_target_e_stepper_from_command();
       if (target_e_stepper < 0) return;
-
       mixer.T(MIXER_DIRECT_SET_TOOL);
       MIXER_STEPPER_LOOP(i) mixer.set_collector(i, (i == (uint8_t)target_e_stepper) ? 1.0 : 0.0);
       mixer.normalize();
@@ -183,9 +184,7 @@ void GcodeSuite::M702() {
   if (parser.seenval('Z')) park_point.z = parser.linearval('Z');
 
   // Show initial "wait for unload" message
-  #if HAS_LCD_MENU
-    lcd_pause_show_message(PAUSE_MESSAGE_UNLOAD, PAUSE_MODE_UNLOAD_FILAMENT, target_extruder);
-  #endif
+  TERN_(HAS_LCD_MENU, lcd_pause_show_message(PAUSE_MESSAGE_UNLOAD, PAUSE_MODE_UNLOAD_FILAMENT, target_extruder));
 
   #if EXTRUDERS > 1 && DISABLED(PRUSA_MMU2)
     // Change toolhead if specified
@@ -196,7 +195,7 @@ void GcodeSuite::M702() {
 
   // Lift Z axis
   if (park_point.z > 0)
-    do_blocking_move_to_z(_MIN(current_position[Z_AXIS] + park_point.z, Z_MAX_POS), NOZZLE_PARK_Z_FEEDRATE);
+    do_blocking_move_to_z(_MIN(current_position.z + park_point.z, Z_MAX_POS), feedRate_t(NOZZLE_PARK_Z_FEEDRATE));
 
   // Unload filament
   #if ENABLED(PRUSA_MMU2)
@@ -226,7 +225,7 @@ void GcodeSuite::M702() {
 
   // Restore Z axis
   if (park_point.z > 0)
-    do_blocking_move_to_z(_MAX(current_position[Z_AXIS] - park_point.z, 0), NOZZLE_PARK_Z_FEEDRATE);
+    do_blocking_move_to_z(_MAX(current_position.z - park_point.z, 0), feedRate_t(NOZZLE_PARK_Z_FEEDRATE));
 
   #if EXTRUDERS > 1 && DISABLED(PRUSA_MMU2)
     // Restore toolhead if it was changed
@@ -234,14 +233,10 @@ void GcodeSuite::M702() {
       tool_change(active_extruder_before_filament_change, false);
   #endif
 
-  #if ENABLED(MIXING_EXTRUDER)
-    mixer.T(old_mixing_tool); // Restore original mixing tool
-  #endif
+  TERN_(MIXING_EXTRUDER, mixer.T(old_mixing_tool)); // Restore original mixing tool
 
   // Show status screen
-  #if HAS_LCD_MENU
-    lcd_pause_show_message(PAUSE_MESSAGE_STATUS);
-  #endif
+  TERN_(HAS_LCD_MENU, lcd_pause_show_message(PAUSE_MESSAGE_STATUS));
 }
 
 #endif // ADVANCED_PAUSE_FEATURE
